@@ -10,6 +10,7 @@ import { dirname } from 'path';
 const app = express();
 
 app.use(cors());
+app.use(bodyParser.json());
 
 mongoose.connect('mongodb+srv://cookbook:jTyTfD8uLHxpvqD@cluster0.8ekwc6d.mongodb.net/myFirstDatabase?retryWrites=true&w=majority', {
 })
@@ -17,6 +18,7 @@ mongoose.connect('mongodb+srv://cookbook:jTyTfD8uLHxpvqD@cluster0.8ekwc6d.mongod
 .catch(err => console.error('Error connecting to MongoDB:', err));
 
 const bookSchema = new mongoose.Schema({
+    userID: String,
     title: String,
     tableOfContents: String,
     imagePath: String 
@@ -40,10 +42,6 @@ const pageSchema = new mongoose.Schema({
 const Book = mongoose.model('Book', bookSchema);
 const Page = mongoose.model('Page', pageSchema);
 
-app.use(bodyParser.json());
-
-
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -60,8 +58,8 @@ const upload = multer({ storage: storage });
 
 app.post('/api/books', upload.single('image'), async (req, res) => {
     try {
-        const { title, tableOfContents, imagePath } = req.body;
-        const newBook = new Book({ title, tableOfContents, imagePath });
+        const { title, tableOfContents, imagePath, userID } = req.body;
+        const newBook = new Book({ title, tableOfContents, imagePath, userID });
         await newBook.save();
         res.status(201).json({ message: 'Book created successfully', book: newBook });
     } catch (err) {
@@ -87,7 +85,15 @@ app.post('/api/pages', async (req, res) => {
 
 app.get('/api/books', async (req, res) => {
     try {
-        const books = await Book.find();
+        const userID = req.query.userID; 
+        let books;
+
+        if (userID) {
+            books = await Book.find({ userID: userID });
+        } else {
+            books = await Book.find();
+        }
+
         res.status(200).json(books);
     } catch (err) {
         console.error('Error fetching books:', err);
@@ -97,7 +103,11 @@ app.get('/api/books', async (req, res) => {
 
 app.get('/api/books/:title', async (req, res) => {
     try {
-        const book = await Book.findOne({ title: req.params.title });
+        const { userID } = req.headers;
+        if (!userID) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
+        const book = await Book.findOne({ title: req.params.title, userID });
         if (book) {
             res.status(200).json(book);
         } else {
@@ -111,10 +121,14 @@ app.get('/api/books/:title', async (req, res) => {
 
 app.put('/api/books/:title', async (req, res) => {
     try {
+        const { userID } = req.headers;
+        if (!userID) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
         const { title } = req.params;
         const { tableOfContents } = req.body;
         let book = await Book.findOneAndUpdate(
-            { title },
+            { title, userID },
             { tableOfContents },
             { new: true }
         );
@@ -163,8 +177,9 @@ app.get('/api/pages/:pageId', async (req, res) => {
 app.delete('/api/books/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const { userID } = req.headers;
 
-        const book = await Book.findById(id);
+        const book = await Book.findOne({ _id: id, userID });
         if (!book) {
             return res.status(404).json({ message: 'Book not found' });
         }
@@ -214,6 +229,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
-
 
 export default app;
